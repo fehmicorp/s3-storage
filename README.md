@@ -21,7 +21,7 @@ Internet
    │
    ├── Port 80
    │      │
-   │      └── NGINX
+   │      └── NGINX API Gateway
    │             │
    │             └── /cdn → MinIO API (9000)
    │
@@ -35,7 +35,8 @@ Internet
 # Features
 
 * S3-compatible object storage
-* CDN-style asset access
+* API-key protected CDN/API gateway
+* Optional pre-signed URL support for temporary frontend access
 * Bucket lifecycle rules
 * Trash bucket for deleted objects
 * Multi-client bucket isolation
@@ -47,19 +48,11 @@ Internet
 
 # Access URLs
 
-### CDN Access
+### CDN/API Access
 
 ```
 http://localhost/cdn/<bucket>/<object>
 ```
-
-Example:
-
-```
-http://localhost/cdn/assets/image.jpg
-```
-
----
 
 ### MinIO Console
 
@@ -82,12 +75,55 @@ MINIO_ROOT_USER=admin
 MINIO_ROOT_PASSWORD=securepassword
 MINIO_REGION=asia-south-1
 MINIO_REGION_NAME=india-lucknow
+
+# API keys used by nginx gateway
+CDN_SERVER_API_KEY=change-this-server-key
+CDN_FRONTEND_API_KEY=change-this-frontend-key
 ```
 
 Run the stack:
 
 ```
 docker compose up -d
+```
+
+---
+
+# Security Model (API style)
+
+`assets` is private by default. Access is granted through the gateway:
+
+1. **Server key (full access)**
+   * Header: `Authorization: Bearer <CDN_SERVER_API_KEY>`
+   * Intended for backend services / microservices.
+
+2. **Frontend key (read-only)**
+   * Header: `Authorization: Bearer <CDN_FRONTEND_API_KEY>`
+   * Allows `GET/HEAD/OPTIONS` only.
+
+3. **Pre-signed URLs (temporary access)**
+   * Any request that contains a valid MinIO/S3 signature query (`X-Amz-Signature`) is forwarded.
+   * Recommended for browser downloads without sharing long-lived keys.
+
+Rate limiting is enabled at the gateway (`30 req/s` per client IP, burst `60`).
+
+---
+
+# Request Examples
+
+Backend upload:
+
+```bash
+curl -X PUT "http://localhost/cdn/assets/image.jpg" \
+  -H "Authorization: Bearer $CDN_SERVER_API_KEY" \
+  --data-binary @image.jpg
+```
+
+Frontend download:
+
+```bash
+curl "http://localhost/cdn/assets/image.jpg" \
+  -H "Authorization: Bearer $CDN_FRONTEND_API_KEY"
 ```
 
 ---
@@ -100,63 +136,17 @@ Pull from GitHub Container Registry:
 docker pull ghcr.io/fehmicorp/s3-storage:latest
 ```
 
-Run container manually:
-
-```
-docker run -d \
- -p 80:80 \
- -p 8081:9001 \
- -e MINIO_ROOT_USER=admin \
- -e MINIO_ROOT_PASSWORD=password \
- -v $(pwd)/data:/data \
- ghcr.io/fehmicorp/s3-storage:latest
-```
-
 ---
 
 # Bucket Structure
 
-The system uses the following buckets.
-
 ```
-assets            → Public developer assets
+assets            → Protected developer assets
 system-trash      → Temporary deleted files
 system-archive    → Long-term archived objects
 ```
 
 Lifecycle rules automatically remove objects from `system-trash` after 90 days.
-
----
-
-# Security Model
-
-Each client can be assigned a dedicated bucket:
-
-```
-<client-uuid>
-```
-
-Access policies allow:
-
-* Bucket owner access
-* Shared bucket access
-* Read-only public assets
-
----
-
-# Object Access Example
-
-Upload using S3 API:
-
-```
-PUT /assets/image.jpg
-```
-
-Access through CDN:
-
-```
-http://localhost/cdn/assets/image.jpg
-```
 
 ---
 
@@ -181,9 +171,9 @@ docker push ghcr.io/fehmicorp/s3-storage:latest
 
 Future improvements planned:
 
-* Signed CDN URLs
+* Signed CDN URLs with expiry policies
 * Hotlink protection
-* Rate limiting
+* Rate limiting per API key
 * Multi-region storage
 * Automatic bucket provisioning
 * Web-based management API
