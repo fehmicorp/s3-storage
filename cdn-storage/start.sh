@@ -25,9 +25,7 @@ echo "Applying lifecycle..."
 
 mc ilm import local/system-trash < /config/lifecycle-trash.json
 
-echo "Public read assets..."
-
-mc anonymous set download local/assets
+echo "Assets bucket kept private (access via API key or pre-signed URL)..."
 
 echo "Starting nginx..."
 
